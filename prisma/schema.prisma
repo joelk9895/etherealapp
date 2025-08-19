@@ -1,0 +1,228 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  email     String   @unique
+  name      String
+  password  String
+  userType  String   @default("buyer") // "buyer" or "producer"
+  avatar    String?
+  bio       String?
+  location  String?
+  verified  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  samples   Sample[]
+  packs     Pack[]
+  orders    Order[]
+  cartItems CartItem[]
+  followers Follow[]   @relation("FollowerUser")
+  following Follow[]   @relation("FollowingUser")
+
+  @@map("users")
+}
+
+model Pack {
+  id          String  @id @default(auto()) @map("_id") @db.ObjectId
+  title       String
+  description String?
+  category    String
+  price       Float
+
+  // Pack preview (song made with the pack)
+  previewUrl String?
+  previewKey String? // S3 key for the preview audio
+
+  // Pack metadata
+  bpm           Int?
+  key           String?
+  totalSamples  Int     @default(0)
+  totalDuration Float   @default(0)
+
+  // Pack artwork
+  artworkUrl String?
+  artworkKey String? // S3 key for artwork
+
+  // Tags
+  styleTags       String[] @default([])
+  moodTags        String[] @default([])
+  processingTags  String[] @default([])
+  soundDesignTags String[] @default([])
+
+  plays Int @default(0)
+  sales Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  producerId String   @db.ObjectId
+  producer   User     @relation(fields: [producerId], references: [id])
+  samples    Sample[] // Samples in this pack
+
+  // Cart and purchase relations
+  cartItems        CartItem[]
+  orderItems       OrderItem[]
+  guestCarts       GuestCart[]
+  purchasedSamples PurchasedSample[]
+
+  @@map("packs")
+}
+
+model Sample {
+  id          String  @id @default(auto()) @map("_id") @db.ObjectId
+  title       String
+  description String?
+  category    String
+  bpm         Int? // Optional for one-shots, required for loops
+  key         String?
+  duration    Int // in seconds
+
+  // File URLs (not sold individually, only as part of pack)
+  audioUrl    String
+  audioKey    String
+  waveformUrl String?
+  waveformKey String?
+  artworkUrl  String?
+
+  // New content classification fields
+  contentType String? // "sample-one-shot", "sample-loop", "sample-loop-midi", "midi", "preset", "construction-kit"
+  soundGroup  String? // "melodic-harmonic", "drums-percussion", "atmospheric-fx", "vocals" (for one-shots)
+  soundType   String? // Specific sound type based on group and content type
+
+  // Tags
+  styleTags       String[] @default([])
+  moodTags        String[] @default([])
+  processingTags  String[] @default([])
+  soundDesignTags String[] @default([])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  producerId String @db.ObjectId
+  producer   User   @relation(fields: [producerId], references: [id])
+
+  // Pack relation - samples belong to packs
+  packId String? @db.ObjectId
+  pack   Pack?   @relation(fields: [packId], references: [id])
+
+  @@map("samples")
+}
+
+model CartItem {
+  id       String @id @default(auto()) @map("_id") @db.ObjectId
+  quantity Int    @default(1)
+
+  // Relations
+  userId String @db.ObjectId
+  user   User   @relation(fields: [userId], references: [id])
+  packId String @db.ObjectId
+  pack   Pack   @relation(fields: [packId], references: [id])
+
+  @@unique([userId, packId])
+  @@map("cart_items")
+}
+
+model Order {
+  id              String      @id @default(auto()) @map("_id") @db.ObjectId
+  customerEmail   String // For guest purchases
+  subtotal        Float
+  tax             Float
+  total           Float
+  status          OrderStatus @default(PENDING)
+  stripeSessionId String? // Stripe checkout session ID
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  // Relations - userId is optional for guest purchases
+  userId String? @db.ObjectId
+  user   User?   @relation(fields: [userId], references: [id])
+
+  orderItems       OrderItem[]
+  purchasedSamples PurchasedSample[]
+
+  @@map("orders")
+}
+
+model OrderItem {
+  id       String @id @default(auto()) @map("_id") @db.ObjectId
+  quantity Int
+  price    Float // Price at time of purchase
+
+  // Relations
+  orderId String @db.ObjectId
+  order   Order  @relation(fields: [orderId], references: [id])
+  packId  String @db.ObjectId
+  pack    Pack   @relation(fields: [packId], references: [id])
+
+  @@map("order_items")
+}
+
+model GuestCart {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  sessionId String // Browser session identifier
+  quantity  Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  packId String @db.ObjectId
+  pack   Pack   @relation(fields: [packId], references: [id])
+
+  @@unique([sessionId, packId])
+  @@map("guest_carts")
+}
+
+model PurchasedSample {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  customerEmail String
+  downloadToken String   @unique // Secure token for downloading
+  downloadCount Int      @default(0)
+  maxDownloads  Int      @default(3) // Allow 3 downloads
+  createdAt     DateTime @default(now())
+  expiresAt     DateTime // Download link expiry
+
+  // Relations
+  orderId String @db.ObjectId
+  order   Order  @relation(fields: [orderId], references: [id])
+  packId  String @db.ObjectId
+  pack    Pack   @relation(fields: [packId], references: [id])
+
+  @@map("purchased_samples")
+}
+
+model Follow {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+
+  // Relations
+  followerId  String @db.ObjectId
+  follower    User   @relation("FollowerUser", fields: [followerId], references: [id])
+  followingId String @db.ObjectId
+  following   User   @relation("FollowingUser", fields: [followingId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@unique([followerId, followingId])
+  @@map("follows")
+}
+
+enum OrderStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  CANCELLED
+  REFUNDED
+}
