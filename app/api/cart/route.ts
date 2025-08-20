@@ -104,32 +104,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check if item already exists in cart
-    const existingCartItem = await prisma.cartItem.findUnique({
-      where: {
-        userId_packId: {
-          userId,
-          packId,
-        },
+    // Clear the cart first to ensure only one pack at a time
+    await prisma.cartItem.deleteMany({
+      where: { userId },
+    });
+    
+    // Create new cart item (no need to check for existing since we just cleared the cart)
+    await prisma.cartItem.create({
+      data: {
+        userId,
+        packId,
+        quantity,
       },
     });
-
-    if (existingCartItem) {
-      // Update quantity
-      await prisma.cartItem.update({
-        where: { id: existingCartItem.id },
-        data: { quantity: existingCartItem.quantity + quantity },
-      });
-    } else {
-      // Create new cart item
-      await prisma.cartItem.create({
-        data: {
-          userId,
-          packId,
-          quantity,
-        },
-      });
-    }
 
     // Get updated cart count
     const cartCount = await prisma.cartItem.count({

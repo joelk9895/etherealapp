@@ -199,13 +199,13 @@ export default function CheckoutSuccessPage() {
         )}
 
         {/* Downloaded Samples */}
-        {purchasedSamples.length > 0 && (
+        {purchasedSamples && purchasedSamples.length > 0 && (
           <div className="bg-gray-900 border border-gray-800 rounded-lg p-6 mb-8">
             <h2 className="font-anton text-2xl text-white mb-6">
               Your Downloads
             </h2>
             <div className="space-y-4">
-              {purchasedSamples.map((sample) => (
+              {purchasedSamples && purchasedSamples.length > 0 && purchasedSamples.map((sample) => (
                 <div
                   key={sample.sampleId}
                   className="flex items-center justify-between p-4 bg-gray-800 rounded-lg"

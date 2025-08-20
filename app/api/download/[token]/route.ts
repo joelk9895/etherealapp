@@ -12,23 +12,52 @@ export async function GET(
     // Find the purchased sample by token
     const purchasedSample = await prisma.purchasedSample.findUnique({
       where: { downloadToken: token },
-      include: {
-        sample: {
-          include: {
-            producer: {
-              select: {
-                name: true,
-              },
-            },
-          },
+    });
+    
+    if (!purchasedSample) {
+      return NextResponse.json(
+        {
+          error: "Invalid download token",
         },
-      },
+        { status: 404 }
+      );
+    }
+    
+    // Get pack and sample data
+    const pack = await prisma.pack.findUnique({
+      where: { id: purchasedSample.packId },
+      include: {
+        producer: {
+          select: { name: true }
+        },
+        samples: true
+      }
     });
 
     if (!purchasedSample) {
       return NextResponse.json(
         {
           error: "Invalid download token",
+        },
+        { status: 404 }
+      );
+    }
+    
+    // Get pack and sample data
+    const pack = await prisma.pack.findUnique({
+      where: { id: purchasedSample.packId },
+      include: {
+        producer: {
+          select: { name: true }
+        },
+        samples: true
+      }
+    });
+    
+    if (!pack || !pack.samples || pack.samples.length === 0) {
+      return NextResponse.json(
+        {
+          error: "Pack or samples not found",
         },
         { status: 404 }
       );
@@ -62,10 +91,28 @@ export async function GET(
       },
     });
 
+    // Use the first sample in the pack for download
+    const sample = pack.samples[0];
+      
+    if (!sample) {
+      return NextResponse.json(
+        {
+          error: "No samples found in pack",
+        },
+        { status: 404 }
+      );
+    }
+
     // Generate presigned URL for the actual audio file download
     try {
+      // Use the audioKey from the sample record
+      const audioKey = sample.audioKey;
+      if (!audioKey) {
+        throw new Error("Sample has no audio file");
+      }
+
       const downloadUrl = await generatePresignedDownloadUrl(
-        `samples/${purchasedSample.sampleId}/audio.mp3`,
+        audioKey,
         3600 // 1 hour expiration
       );
 
@@ -78,17 +125,17 @@ export async function GET(
       return NextResponse.json({
         success: true,
         sample: {
-          title: purchasedSample.sample.title,
-          producer: purchasedSample.sample.producer.name,
-          category: purchasedSample.sample.category,
-          bpm: purchasedSample.sample.bpm,
-          key: purchasedSample.sample.key,
+          title: sample.title,
+          producer: pack.producer.name,
+          category: sample.category,
+          bpm: sample.bpm,
+          key: sample.key,
         },
         downloadInfo: {
-          downloadCount: purchasedSample.downloadCount + 1,
+          downloadCount: purchasedSample.downloadCount,
           maxDownloads: purchasedSample.maxDownloads,
           remainingDownloads:
-            purchasedSample.maxDownloads - (purchasedSample.downloadCount + 1),
+            purchasedSample.maxDownloads - purchasedSample.downloadCount,
           expiresAt: purchasedSample.expiresAt,
         },
         error: "File temporarily unavailable. Please contact support.",

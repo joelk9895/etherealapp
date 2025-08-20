@@ -32,7 +32,7 @@ export default function SampleDetailPage() {
   const [currentlyPlaying, setCurrentlyPlaying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [addingToCart, setAddingToCart] = useState(false);
-  const { addToCart, cartItems, fetchCart } = useCart();
+  const { addToCart, cartItems, fetchCart, removeItem } = useCart();
   const {
     toasts,
     removeToast,
@@ -50,7 +50,10 @@ export default function SampleDetailPage() {
 
   // Helper function to get quantity of a sample in cart
   const getSampleQuantityInCart = (sampleId: string) => {
-    const cartItem = cartItems.find((item) => item.sampleId === sampleId);
+    console.log("Cart items:", cartItems);
+    console.log("Looking for packId:", sampleId);
+    const cartItem = cartItems.find((item) => item.packId === sampleId);
+    console.log("Found cart item:", cartItem);
     return cartItem ? cartItem.quantity : 0;
   };
 
@@ -82,28 +85,39 @@ export default function SampleDetailPage() {
     setCurrentlyPlaying(!currentlyPlaying);
   };
 
-  const handleAddToCart = async () => {
+  const handleCartAction = async () => {
     if (!sample) return;
 
     // Check if already in cart
     const quantityInCart = getSampleQuantityInCart(sample.id);
-    if (quantityInCart > 0) return;
-
+    const isInCart = quantityInCart > 0;
+    
     setAddingToCart(true);
+    
     try {
-      // Create a compatible sample object for addToCart
-      const sampleForCart = {
-        id: sample.id,
-        title: sample.title,
-        producer: sample.producer.name,
-        price: sample.price,
-        preview_url: sample.preview_url,
-      };
-      await addToCart(sampleForCart, 1);
-      showSuccess(`"${sample.title}" added to cart!`);
+      if (isInCart) {
+        // Find the cart item ID to remove
+        const cartItem = cartItems.find((item) => item.packId === sample.id);
+        if (cartItem) {
+          await removeItem(cartItem.id);
+          showSuccess(`"${sample.title}" removed from cart!`);
+        }
+      } else {
+        // Create a compatible sample object for addToCart
+        const sampleForCart = {
+          id: sample.id,
+          title: sample.title,
+          producer: sample.producer.name,
+          price: sample.price,
+          preview_url: sample.preview_url,
+        };
+        await addToCart(sampleForCart, 1);
+        showSuccess(`"${sample.title}" added to cart!`);
+      }
     } catch (error) {
-      console.error("Error adding to cart:", error);
-      showError(`Failed to add "${sample.title}" to cart. Please try again.`);
+      console.error("Error managing cart:", error);
+      const action = isInCart ? "remove" : "add";
+      showError(`Failed to ${action} "${sample.title}" ${isInCart ? "from" : "to"} cart. Please try again.`);
     } finally {
       setAddingToCart(false);
     }
@@ -378,34 +392,43 @@ export default function SampleDetailPage() {
                     )}
 
                     <button
-                      onClick={handleAddToCart}
-                      disabled={isInCart || addingToCart}
+                      onClick={handleCartAction}
+                      disabled={addingToCart}
                       className={`w-full px-6 py-4 rounded-md transition-colors font-instrument-sans font-medium text-lg mb-3 flex items-center justify-center gap-3 ${
                         isInCart
-                          ? "bg-gray-600 text-gray-300 cursor-not-allowed"
+                          ? "bg-red-500 hover:bg-red-600 text-white"
                           : addingToCart
                           ? "bg-yellow-600 text-black cursor-wait"
                           : "bg-yellow-500 hover:bg-yellow-400 text-black"
                       }`}
                     >
-                      {isInCart ? (
+                      {addingToCart ? (
+                        <>
+                          <div className="w-6 h-6 border-2 border-black/30 border-t-black rounded-full animate-spin"></div>
+                          {isInCart ? "Removing..." : "Adding..."}
+                        </>
+                      ) : isInCart ? (
                         <>
                           <svg
                             className="w-6 h-6"
                             fill="currentColor"
                             viewBox="0 0 24 24"
                           >
-                            <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
+                            <path d="M19 13H5v-2h14v2z" />
                           </svg>
-                          Added to Cart
-                        </>
-                      ) : addingToCart ? (
-                        <>
-                          <div className="w-6 h-6 border-2 border-black/30 border-t-black rounded-full animate-spin"></div>
-                          Adding to Cart...
+                          Remove from Cart
                         </>
                       ) : (
-                        "Add to Cart"
+                        <>
+                          <svg
+                            className="w-6 h-6"
+                            fill="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" />
+                          </svg>
+                          Add to Cart
+                        </>
                       )}
                     </button>
                   </>

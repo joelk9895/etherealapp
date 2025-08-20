@@ -348,7 +348,7 @@ export default function ProducerProfilePage() {
         {/* Tab Content */}
         {activeTab === "samples" ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {samples.map((sample) => (
+            {samples && samples.length > 0 ? samples.map((sample) => (
               <Link
                 key={sample.id}
                 href={`/samples/${sample.id}`}
@@ -468,7 +468,11 @@ export default function ProducerProfilePage() {
                   </div>
                 </div>
               </Link>
-            ))}
+            )) : (
+              <div className="col-span-3 text-center py-12">
+                <p className="font-instrument-sans text-gray-400">This producer hasn't uploaded any samples yet.</p>
+              </div>
+            )}
           </div>
         ) : (
           <div className="bg-white/10 backdrop-blur-md border border-white/20 rounded-lg p-8">

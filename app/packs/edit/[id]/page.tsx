@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useParams } from "next/navigation";
 import Header from "@/components/Header";
 
 interface Sample {
@@ -48,11 +48,16 @@ const soundDesignTags = [
   "crisp", "smooth", "gritty", "clean", "processed", "raw"
 ];
 
-export default function CreatePackPage() {
+export default function EditPackPage() {
   const router = useRouter();
+  const params = useParams();
+  const packId = params.id as string;
+  
   const [loading, setLoading] = useState(true);
+  const [packLoading, setPackLoading] = useState(true);
   const [user, setUser] = useState<any>(null);
   const [samples, setSamples] = useState<Sample[]>([]);
+  const [allPackSamples, setAllPackSamples] = useState<Sample[]>([]);
   const [selectedSamples, setSelectedSamples] = useState<string[]>([]);
   const [packData, setPackData] = useState({
     title: "",
@@ -65,15 +70,24 @@ export default function CreatePackPage() {
     moodTags: [] as string[],
     processingTags: [] as string[],
     soundDesignTags: [] as string[],
+    previewUrl: "",
+    artworkUrl: ""
   });
   const [previewFile, setPreviewFile] = useState<File | null>(null);
   const [artworkFile, setArtworkFile] = useState<File | null>(null);
-  const [creating, setCreating] = useState(false);
+  const [updating, setUpdating] = useState(false);
 
   useEffect(() => {
     checkAuth();
-    fetchUserSamples();
   }, []);
+
+  // Fetch pack data and samples after authentication
+  useEffect(() => {
+    if (user) {
+      fetchPack();
+      fetchUserSamples();
+    }
+  }, [user, packId]);
 
   const checkAuth = async () => {
     const token = localStorage.getItem("token");
@@ -105,6 +119,53 @@ export default function CreatePackPage() {
     }
   };
 
+  const fetchPack = async () => {
+    setPackLoading(true);
+    try {
+      const response = await fetch(`/api/packs/${packId}`);
+      if (!response.ok) {
+        throw new Error("Pack not found");
+      }
+      const data = await response.json();
+      const pack = data.pack;
+      
+      // Check if current user is the producer of this pack
+      if (user.id !== pack.producer.id) {
+        router.push("/packs");
+        return;
+      }
+
+      // Set pack data
+      setPackData({
+        title: pack.title || "",
+        description: pack.description || "",
+        price: pack.price.toString() || "",
+        category: pack.category || "",
+        bpm: pack.bpm ? pack.bpm.toString() : "",
+        key: pack.key || "",
+        styleTags: pack.styleTags || [],
+        moodTags: pack.moodTags || [],
+        processingTags: pack.processingTags || [],
+        soundDesignTags: pack.soundDesignTags || [],
+        previewUrl: pack.previewUrl || "",
+        artworkUrl: pack.artworkUrl || ""
+      });
+
+      // Set selected samples
+      if (pack.samples && Array.isArray(pack.samples)) {
+        const sampleIds = pack.samples.map((sample: any) => sample.id);
+        setSelectedSamples(sampleIds);
+        setAllPackSamples(pack.samples);
+      }
+    } catch (error) {
+      console.error("Error fetching pack:", error);
+      alert("Failed to load pack data");
+      router.push("/packs");
+    } finally {
+      setPackLoading(false);
+    }
+  };
+
   const fetchUserSamples = async () => {
     const token = localStorage.getItem("token");
     try {
@@ -114,9 +175,11 @@ export default function CreatePackPage() {
 
       if (response.ok) {
         const data = await response.json();
-        // Filter samples that are not already in a pack
-        const unpackedSamples = data.samples.filter((sample: Sample) => !sample.packId);
-        setSamples(unpackedSamples);
+        // Include both unassigned samples and samples that belong to this pack
+        const availableSamples = data.samples.filter((sample: Sample) => 
+          !sample.packId || sample.packId === packId
+        );
+        setSamples(availableSamples);
       }
     } catch (error) {
       console.error("Error fetching samples:", error);
@@ -146,12 +209,8 @@ export default function CreatePackPage() {
       alert("Please select at least one sample for the pack");
       return;
     }
-    if (!previewFile) {
-      alert("Please upload a preview audio file");
-      return;
-    }
 
-    setCreating(true);
+    setUpdating(true);
     const token = localStorage.getItem("token");
     const formData = new FormData();
 
@@ -167,15 +226,21 @@ export default function CreatePackPage() {
     // Selected samples
     formData.append("selectedSamples", JSON.stringify(selectedSamples));
 
-    // Files
-    formData.append("previewFile", previewFile);
+    // Pack ID
+    formData.append("packId", packId);
+
+    // Files - only append if new files were selected
+    if (previewFile) {
+      formData.append("previewFile", previewFile);
+    }
+    
     if (artworkFile) {
       formData.append("artworkFile", artworkFile);
     }
 
     try {
-      const response = await fetch("/api/packs/create", {
-        method: "POST",
+      const response = await fetch(`/api/packs/edit/${packId}`, {
+        method: "PUT",
         headers: { Authorization: `Bearer ${token}` },
         body: formData,
       });
@@ -190,15 +255,15 @@ export default function CreatePackPage() {
         // Show a more detailed error message including any details the server provided
         const errorMessage = errorData.details 
           ? `${errorData.error}: ${errorData.details}`
-          : errorData.error || "Failed to create pack";
+          : errorData.error || "Failed to update pack";
         
         alert(errorMessage);
       }
     } catch (error) {
-      console.error("Error creating pack:", error);
-      alert("Failed to create pack");
+      console.error("Error updating pack:", error);
+      alert("Failed to update pack");
     } finally {
-      setCreating(false);
+      setUpdating(false);
     }
   };
 
@@ -208,7 +273,7 @@ export default function CreatePackPage() {
     return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
   };
 
-  if (loading) {
+  if (loading || packLoading) {
     return (
       <div className="min-h-screen bg-gray-950">
         <Header />
@@ -225,9 +290,9 @@ export default function CreatePackPage() {
       
       <div className="max-w-6xl mx-auto px-4 py-8">
         <div className="mb-8">
-          <h1 className="font-anton text-4xl text-white mb-2">Create Pack</h1>
+          <h1 className="font-anton text-4xl text-white mb-2">Edit Pack</h1>
           <p className="font-instrument-sans text-gray-400">
-            Group your samples into a sellable pack with a preview track
+            Update your sample pack details and content
           </p>
         </div>
 
@@ -334,24 +399,45 @@ export default function CreatePackPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <label className="block font-instrument-sans text-white mb-2">
-                  Preview Track * (Song made using this pack)
+                  Preview Track (Current or New)
                 </label>
+                {packData.previewUrl && (
+                  <div className="mb-2">
+                    <audio
+                      src={packData.previewUrl}
+                      controls
+                      className="w-full mb-2"
+                    />
+                    <p className="text-xs text-gray-400">Current preview track</p>
+                  </div>
+                )}
                 <input
                   type="file"
                   accept="audio/*"
                   onChange={(e) => setPreviewFile(e.target.files?.[0] || null)}
                   className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white font-instrument-sans focus:outline-none focus:border-yellow-500"
-                  required
                 />
                 <p className="text-gray-400 text-sm mt-1">
-                  Upload a demo track showcasing how the pack sounds
+                  {packData.previewUrl 
+                    ? "Upload a new file only if you want to replace the current preview" 
+                    : "Upload a demo track showcasing how the pack sounds"}
                 </p>
               </div>
 
               <div>
                 <label className="block font-instrument-sans text-white mb-2">
-                  Pack Artwork (Optional)
+                  Pack Artwork
                 </label>
+                {packData.artworkUrl && (
+                  <div className="mb-2">
+                    <img 
+                      src={packData.artworkUrl} 
+                      alt="Pack artwork" 
+                      className="w-32 h-32 object-cover rounded-lg mb-2"
+                    />
+                    <p className="text-xs text-gray-400">Current artwork</p>
+                  </div>
+                )}
                 <input
                   type="file"
                   accept="image/*"
@@ -359,7 +445,9 @@ export default function CreatePackPage() {
                   className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white font-instrument-sans focus:outline-none focus:border-yellow-500"
                 />
                 <p className="text-gray-400 text-sm mt-1">
-                  Square format recommended (1000x1000px)
+                  {packData.artworkUrl 
+                    ? "Upload a new file only if you want to replace the current artwork" 
+                    : "Square format recommended (1000x1000px)"}
                 </p>
               </div>
             </div>
@@ -527,10 +615,10 @@ export default function CreatePackPage() {
             </button>
             <button
               type="submit"
-              disabled={creating || selectedSamples.length === 0 || !previewFile}
-              className="px-6 py-3 bg-yellow-500 hover:bg-yellow-400 text-black rounded-lg font-instrument-sans font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={updating || selectedSamples.length === 0}
+              className="px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-instrument-sans font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {creating ? "Creating Pack..." : "Create Pack"}
+              {updating ? "Updating Pack..." : "Update Pack"}
             </button>
           </div>
         </form>

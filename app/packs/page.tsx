@@ -46,12 +46,48 @@ export default function PacksPage() {
   const [sortBy, setSortBy] = useState("createdAt");
   const [playingPreview, setPlayingPreview] = useState<string | null>(null);
   const [audioRef, setAudioRef] = useState<HTMLAudioElement | null>(null);
+  const [user, setUser] = useState<{ id: string; name: string; userType: string } | null>(null);
 
-  const { addToCart } = useCart();
+    const { addToCart, cartItems, fetchCart, removeItem } = useCart();
 
   useEffect(() => {
     fetchPacks();
-  }, [currentPage, selectedCategory, searchQuery, sortBy]);
+    checkAuth();
+    fetchCart(); // Load cart data when component mounts
+  }, [currentPage, selectedCategory, searchQuery, sortBy, fetchCart]);
+  
+  // Refresh cart data periodically
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      fetchCart();
+    }, 3000);
+    return () => clearInterval(intervalId);
+  }, [fetchCart]);
+
+  // Check if user is authenticated and get user info
+  const checkAuth = async () => {
+    const token = localStorage.getItem("token");
+    if (!token) {
+      setUser(null);
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/auth/me", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setUser(data.user);
+      } else {
+        setUser(null);
+      }
+    } catch (error) {
+      console.error("Auth check failed:", error);
+      setUser(null);
+    }
+  };
 
   const fetchPacks = async () => {
     setLoading(true);
@@ -110,20 +146,40 @@ export default function PacksPage() {
     }
   };
 
-  const handleAddToCart = async (pack: Pack) => {
+  // Check if a pack is in the cart
+  const isPackInCart = (packId: string) => {
+    return cartItems.some(item => item.packId === packId);
+  };
+
+  const handleCartAction = async (pack: Pack) => {
+    const inCart = isPackInCart(pack.id);
+    
     try {
-      await addToCart({
-        id: pack.id,
-        packId: pack.id,
-        title: pack.title,
-        producer: pack.producer,
-        price: pack.price,
-        quantity: 1,
-        preview_url: pack.previewUrl
-      });
+      if (inCart) {
+        // If in cart, find the cart item and remove it
+        const cartItem = cartItems.find(item => item.packId === pack.id);
+        if (cartItem) {
+          await removeItem(cartItem.id);
+          // Wait for the state to be updated
+          setTimeout(() => {
+            alert("Pack removed from cart!");
+          }, 100);
+        }
+      } else {
+        // If not in cart, add it
+        await addToCart({
+          id: pack.id,
+          packId: pack.id,
+          title: pack.title,
+          producer: pack.producer,
+          price: pack.price,
+          quantity: 1,
+          preview_url: pack.previewUrl
+        });
+      }
     } catch (error) {
-      console.error("Error adding pack to cart:", error);
-      alert("Failed to add pack to cart");
+      console.error("Error updating cart:", error);
+      alert("Failed to update cart");
     }
   };
 
@@ -202,15 +258,17 @@ export default function PacksPage() {
           </div>
         </div>
 
-        {/* Create Pack Button (for producers) */}
-        <div className="mb-8">
-          <Link
-            href="/packs/create"
-            className="inline-block bg-green-600 hover:bg-green-500 text-white px-6 py-3 rounded-lg font-instrument-sans font-semibold transition-colors"
-          >
-            + Create Pack
-          </Link>
-        </div>
+        {/* Create Pack Button (for producers only) */}
+        {user?.userType === "producer" && (
+          <div className="mb-8">
+            <Link
+              href="/packs/create"
+              className="inline-block bg-green-600 hover:bg-green-500 text-white px-6 py-3 rounded-lg font-instrument-sans font-semibold transition-colors"
+            >
+              + Create Pack
+            </Link>
+          </div>
+        )}
 
         {/* Packs Grid */}
         {loading ? (
@@ -239,7 +297,10 @@ export default function PacksPage() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6">
             {packs.map(pack => (
-              <div key={pack.id} className="bg-gray-900 border border-gray-800 rounded-lg p-4 hover:border-gray-700 transition-colors">
+              <div key={pack.id} className="bg-gray-900 border border-gray-800 rounded-lg p-4 hover:border-gray-700 transition-colors relative group cursor-pointer">
+                {/* Clickable Area for Entire Card */}
+                <Link href={`/packs/${pack.id}`} className="absolute inset-0 z-10" aria-label={`View details for ${pack.title}`}></Link>
+                
                 {/* Pack Artwork */}
                 <div className="aspect-square bg-gray-800 rounded-lg mb-4 relative overflow-hidden">
                   {pack.artworkUrl ? (
@@ -256,10 +317,14 @@ export default function PacksPage() {
                     </div>
                   )}
                   
-                  {/* Play Button */}
+                  {/* Play Button - z-20 to stay above the Link */}
                   <button
-                    onClick={() => handlePlayPreview(pack.id, pack.previewUrl)}
-                    className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity"
+                    onClick={(e) => {
+                      e.preventDefault(); // Prevent navigation when clicking play
+                      e.stopPropagation(); // Stop event from bubbling up
+                      handlePlayPreview(pack.id, pack.previewUrl);
+                    }}
+                    className="absolute inset-0 z-20 bg-black bg-opacity-50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
                   >
                     {playingPreview === pack.id ? (
                       <svg className="w-8 h-8 text-white" fill="currentColor" viewBox="0 0 20 20">
@@ -296,7 +361,7 @@ export default function PacksPage() {
                   )}
 
                   {/* Tags */}
-                  {pack.styleTags.length > 0 && (
+                  {pack.styleTags && pack.styleTags.length > 0 && (
                     <div className="flex flex-wrap gap-1">
                       {pack.styleTags.slice(0, 3).map(tag => (
                         <span key={tag} className="px-2 py-1 bg-gray-800 text-gray-300 text-xs rounded">
@@ -306,16 +371,24 @@ export default function PacksPage() {
                     </div>
                   )}
 
-                  {/* Price and Actions */}
-                  <div className="flex items-center justify-between pt-2">
+                  {/* Price and Actions - z-20 to stay above the Link */}
+                  <div className="flex items-center justify-between pt-2 relative z-20">
                     <span className="font-instrument-sans font-bold text-yellow-500">
                       ${pack.price.toFixed(2)}
                     </span>
                     <button
-                      onClick={() => handleAddToCart(pack)}
-                      className="px-3 py-1 bg-yellow-500 hover:bg-yellow-400 text-black text-xs font-semibold rounded transition-colors"
+                      onClick={(e) => {
+                        e.preventDefault(); // Prevent navigation when clicking button
+                        e.stopPropagation(); // Stop event from bubbling up
+                        handleCartAction(pack);
+                      }}
+                      className={`px-3 py-1 text-xs font-semibold rounded transition-colors ${
+                        cartItems.some(item => item.packId === pack.id) 
+                          ? 'bg-red-500 hover:bg-red-400 text-white' 
+                          : 'bg-yellow-500 hover:bg-yellow-400 text-black'
+                      }`}
                     >
-                      Add to Cart
+                      {cartItems.some(item => item.packId === pack.id) ? 'Remove' : 'Add to Cart'}
                     </button>
                   </div>
                 </div>

@@ -36,7 +36,7 @@ export default function SamplesPage() {
   const [currentlyPlaying, setCurrentlyPlaying] = useState<string | null>(null);
   const [addingToCart, setAddingToCart] = useState<string | null>(null); // Track which sample is being added
   const [audioRef, setAudioRef] = useState<HTMLAudioElement | null>(null);
-  const { addToCart, cartItems, fetchCart } = useCart();
+  const { addToCart, cartItems, fetchCart, removeItem } = useCart();
   const {
     toasts,
     removeToast,
@@ -61,7 +61,7 @@ export default function SamplesPage() {
 
   // Helper function to get quantity of a sample in cart
   const getSampleQuantityInCart = (sampleId: string) => {
-    const cartItem = cartItems.find((item) => item.sampleId === sampleId);
+    const cartItem = cartItems.find((item) => item.packId === sampleId);
     return cartItem ? cartItem.quantity : 0;
   };
 
@@ -156,22 +156,32 @@ export default function SamplesPage() {
     }
   };
 
-  const handleAddToCart = async (sampleId: string) => {
-    // Check if already in cart
-    const quantityInCart = getSampleQuantityInCart(sampleId);
-    if (quantityInCart > 0) return;
-
+  const handleCartAction = async (sampleId: string) => {
     // Find the sample for the success message and optimistic update
     const sample = samples.find((s) => s.id === sampleId);
     if (!sample) return;
 
+    // Check if already in cart
+    const quantityInCart = getSampleQuantityInCart(sampleId);
+    const isInCart = quantityInCart > 0;
+    
     setAddingToCart(sampleId);
     try {
-      await addToCart(sample, 1);
-      showSuccess(`"${sample.title}" added to cart!`);
+      if (isInCart) {
+        // Find the cart item ID to remove
+        const cartItem = cartItems.find((item) => item.packId === sampleId);
+        if (cartItem) {
+          await removeItem(cartItem.id);
+          showSuccess(`"${sample.title}" removed from cart!`);
+        }
+      } else {
+        await addToCart(sample, 1);
+        showSuccess(`"${sample.title}" added to cart!`);
+      }
     } catch (error) {
-      console.error("Error adding to cart:", error);
-      showError(`Failed to add "${sample.title}" to cart. Please try again.`);
+      console.error("Error managing cart:", error);
+      const action = isInCart ? "remove" : "add";
+      showError(`Failed to ${action} "${sample.title}" ${isInCart ? "from" : "to"} cart. Please try again.`);
     } finally {
       setAddingToCart(null);
     }
@@ -337,7 +347,7 @@ export default function SamplesPage() {
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {samples.map((sample) => (
+                {samples && samples.length > 0 ? samples.map((sample) => (
                   <Link
                     key={sample.id}
                     href={`/samples/${sample.id}`}
@@ -458,37 +468,44 @@ export default function SamplesPage() {
                               onClick={(e) => {
                                 e.preventDefault();
                                 e.stopPropagation();
-                                if (!isInCart && !isLoading) {
-                                  handleAddToCart(sample.id);
-                                }
+                                handleCartAction(sample.id);
                               }}
-                              disabled={isInCart || isLoading}
+                              disabled={isLoading}
                               className={`px-6 py-2 rounded-md transition-colors font-instrument-sans font-medium text-sm flex items-center gap-2 ${
                                 isInCart
-                                  ? "bg-gray-600 text-gray-300 cursor-not-allowed"
+                                  ? "bg-red-500 hover:bg-red-600 text-white"
                                   : isLoading
                                   ? "bg-yellow-600 text-black cursor-wait"
                                   : "bg-yellow-500 hover:bg-yellow-400 text-black"
                               }`}
                             >
-                              {isInCart ? (
+                              {isLoading ? (
+                                <>
+                                  <div className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin"></div>
+                                  {isInCart ? "Removing..." : "Adding..."}
+                                </>
+                              ) : isInCart ? (
                                 <>
                                   <svg
                                     className="w-4 h-4"
                                     fill="currentColor"
                                     viewBox="0 0 24 24"
                                   >
-                                    <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
+                                    <path d="M19 13H5v-2h14v2z" />
                                   </svg>
-                                  Added
-                                </>
-                              ) : isLoading ? (
-                                <>
-                                  <div className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin"></div>
-                                  Adding...
+                                  Remove from Cart
                                 </>
                               ) : (
-                                "Add to Cart"
+                                <>
+                                  <svg
+                                    className="w-4 h-4"
+                                    fill="currentColor"
+                                    viewBox="0 0 24 24"
+                                  >
+                                    <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" />
+                                  </svg>
+                                  Add to Cart
+                                </>
                               )}
                             </button>
                           );
@@ -496,7 +513,11 @@ export default function SamplesPage() {
                       </div>
                     </div>
                   </Link>
-                ))}
+                )) : (
+                  <div className="col-span-3 text-center py-12">
+                    <p className="font-instrument-sans text-gray-400">No samples found matching your criteria.</p>
+                  </div>
+                )}
               </div>
             )}
           </div>

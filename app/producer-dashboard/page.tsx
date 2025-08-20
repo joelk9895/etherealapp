@@ -315,7 +315,7 @@ export default function ProducerDashboardPage() {
             </div>
           ) : (
             <div className="space-y-4">
-              {samples.map((sample) => (
+              {samples && samples.length > 0 ? samples.map((sample) => (
                 <div
                   key={sample.id}
                   className="bg-gray-950 border border-gray-800 rounded-lg p-4 flex items-center justify-between"
@@ -438,7 +438,11 @@ export default function ProducerDashboardPage() {
                     </button>
                   </div>
                 </div>
-              ))}
+              )) : (
+                <div className="text-center py-8">
+                  <p className="font-instrument-sans text-gray-400">No samples found in your account.</p>
+                </div>
+              )}
             </div>
           )}
         </div>

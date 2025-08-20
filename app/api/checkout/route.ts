@@ -3,6 +3,9 @@ import { prisma } from "@/lib/prisma";
 import { stripe } from "@/lib/stripe";
 import jwt from "jsonwebtoken";
 
+// Debug to check if Stripe is properly initialized
+console.log("Stripe object initialized:", !!stripe, "Checkout available:", !!stripe?.checkout);
+
 interface CartItem {
   id: string;
   packId: string;
@@ -35,12 +38,14 @@ export async function POST(request: NextRequest) {
         userId = decoded.userId;
 
         // Get user email from database
-        const user = await prisma.user.findUnique({
-          where: { id: userId },
-          select: { email: true },
-        });
-        if (user) {
-          userEmail = user.email;
+        if (userId) {
+          const user = await prisma.user.findUnique({
+            where: { id: userId },
+            select: { email: true },
+          });
+          if (user) {
+            userEmail = user.email;
+          }
         }
       } catch (error) {
         // Invalid token, continue as guest
@@ -109,6 +114,19 @@ export async function POST(request: NextRequest) {
 
     // Create Stripe checkout session
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3001";
+    
+    // Verify Stripe is properly initialized
+    if (!stripe || !stripe.checkout || !stripe.checkout.sessions) {
+      console.error("Stripe not properly initialized:", { 
+        stripeExists: !!stripe,
+        checkoutExists: !!stripe?.checkout,
+        sessionsExists: !!stripe?.checkout?.sessions
+      });
+      return NextResponse.json(
+        { error: "Payment service configuration error" },
+        { status: 500 }
+      );
+    }
 
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ["card"],

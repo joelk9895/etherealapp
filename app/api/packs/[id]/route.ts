@@ -57,10 +57,14 @@ export async function GET(request: NextRequest, { params }: Props) {
       data: { plays: { increment: 1 } }
     });
 
+    // Ensure samples is always defined
+    const samplesArray = pack.samples || [];
+    
     return NextResponse.json({
       pack: {
         ...pack,
-        sampleCount: pack.samples.length
+        samples: samplesArray,
+        sampleCount: samplesArray.length
       }
     });
 

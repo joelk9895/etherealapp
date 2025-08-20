@@ -58,12 +58,52 @@ export default function PackDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [playingPreview, setPlayingPreview] = useState(false);
   const [audioRef, setAudioRef] = useState<HTMLAudioElement | null>(null);
+  const [user, setUser] = useState<{ id: string; userType: string } | null>(null);
+  const [isOwner, setIsOwner] = useState(false);
 
-  const { addToCart } = useCart();
+  const { addToCart, removeItem, cartItems, fetchCart } = useCart();
 
   useEffect(() => {
-    fetchPack();
+    checkAuth();
   }, [packId]);
+  
+  // Separate useEffect for fetching pack after user state is available
+  useEffect(() => {
+    fetchPack();
+    fetchCart(); // Load cart data when component mounts
+  }, [packId, user, fetchCart]);
+  
+  // Refresh cart data periodically
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      fetchCart();
+    }, 3000);
+    return () => clearInterval(intervalId);
+  }, [fetchCart]);
+
+  const checkAuth = async () => {
+    const token = localStorage.getItem("token");
+    if (!token) {
+      setUser(null);
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/auth/me", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setUser(data.user);
+      } else {
+        setUser(null);
+      }
+    } catch (error) {
+      console.error("Auth check failed:", error);
+      setUser(null);
+    }
+  };
 
   const fetchPack = async () => {
     try {
@@ -73,6 +113,13 @@ export default function PackDetailPage() {
       }
       const data = await response.json();
       setPack(data.pack);
+      
+      // Check if current user is the producer of this pack
+      if (user && data.pack.producer && user.id === data.pack.producer.id) {
+        setIsOwner(true);
+      } else {
+        setIsOwner(false);
+      }
     } catch (error) {
       console.error("Error fetching pack:", error);
       setError("Failed to load pack");
@@ -104,23 +151,43 @@ export default function PackDetailPage() {
     }
   };
 
-  const handleAddToCart = async () => {
+  // Check if the current pack is in the cart
+  const isPackInCart = () => {
+    return cartItems.some(item => item.packId === pack?.id);
+  };
+
+  const handleCartAction = async () => {
     if (!pack) return;
 
+    const inCart = isPackInCart();
+    
     try {
-      await addToCart({
-        id: pack.id,
-        packId: pack.id,
-        title: pack.title,
-        producer: pack.producer.name,
-        price: pack.price,
-        quantity: 1,
-        preview_url: pack.previewUrl
-      });
-      alert("Pack added to cart!");
+      if (inCart) {
+        // If in cart, find the cart item and remove it
+        const cartItem = cartItems.find(item => item.packId === pack.id);
+        if (cartItem) {
+          await removeItem(cartItem.id);
+          // Wait for the state to be updated
+          setTimeout(() => {
+            alert("Pack removed from cart!");
+          }, 100);
+        }
+      } else {
+        // If not in cart, add it
+        await addToCart({
+          id: pack.id,
+          packId: pack.id,
+          title: pack.title,
+          producer: pack.producer.name,
+          price: pack.price,
+          quantity: 1,
+          preview_url: pack.previewUrl
+        });
+        alert("Pack added to cart!");
+      }
     } catch (error) {
-      console.error("Error adding pack to cart:", error);
-      alert("Failed to add pack to cart");
+      console.error("Error managing cart:", error);
+      alert(`Failed to ${inCart ? "remove pack from" : "add pack to"} cart`);
     }
   };
 
@@ -215,12 +282,39 @@ export default function PackDetailPage() {
                   </div>
                 </div>
 
-                <button
-                  onClick={handleAddToCart}
-                  className="w-full bg-yellow-500 hover:bg-yellow-400 text-black py-3 rounded-lg font-instrument-sans font-semibold text-lg transition-colors mb-4"
-                >
-                  Add to Cart
-                </button>
+                {isOwner ? (
+                  <Link
+                    href={`/packs/edit/${packId}`}
+                    className="w-full block bg-blue-600 hover:bg-blue-500 text-white py-3 rounded-lg font-instrument-sans font-semibold text-lg transition-colors mb-4 text-center"
+                  >
+                    Edit Pack
+                  </Link>
+                ) : (
+                  <button
+                    onClick={handleCartAction}
+                    className={`w-full py-3 rounded-lg font-instrument-sans font-semibold text-lg transition-colors mb-4 flex items-center justify-center gap-2 ${
+                      isPackInCart()
+                        ? "bg-red-500 hover:bg-red-600 text-white"
+                        : "bg-yellow-500 hover:bg-yellow-400 text-black"
+                    }`}
+                  >
+                    {isPackInCart() ? (
+                      <>
+                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                          <path d="M19 13H5v-2h14v2z" />
+                        </svg>
+                        Remove from Cart
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                          <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" />
+                        </svg>
+                        Add to Cart
+                      </>
+                    )}
+                  </button>
+                )}
 
                 <button
                   onClick={handlePlayPreview}
@@ -305,7 +399,7 @@ export default function PackDetailPage() {
 
             {/* Tags */}
             <div className="mb-8 space-y-4">
-              {pack.styleTags.length > 0 && (
+              {pack.styleTags && pack.styleTags.length > 0 && (
                 <div>
                   <h3 className="font-instrument-sans font-semibold text-white mb-2">Style</h3>
                   <div className="flex flex-wrap gap-2">
@@ -318,7 +412,7 @@ export default function PackDetailPage() {
                 </div>
               )}
 
-              {pack.moodTags.length > 0 && (
+              {pack.moodTags && pack.moodTags.length > 0 && (
                 <div>
                   <h3 className="font-instrument-sans font-semibold text-white mb-2">Mood</h3>
                   <div className="flex flex-wrap gap-2">
@@ -331,7 +425,7 @@ export default function PackDetailPage() {
                 </div>
               )}
 
-              {pack.processingTags.length > 0 && (
+              {pack.processingTags && pack.processingTags.length > 0 && (
                 <div>
                   <h3 className="font-instrument-sans font-semibold text-white mb-2">Processing</h3>
                   <div className="flex flex-wrap gap-2">
@@ -344,7 +438,7 @@ export default function PackDetailPage() {
                 </div>
               )}
 
-              {pack.soundDesignTags.length > 0 && (
+              {pack.soundDesignTags && pack.soundDesignTags.length > 0 && (
                 <div>
                   <h3 className="font-instrument-sans font-semibold text-white mb-2">Sound Design</h3>
                   <div className="flex flex-wrap gap-2">
@@ -361,11 +455,11 @@ export default function PackDetailPage() {
             {/* Sample List */}
             <div>
               <h2 className="font-anton text-2xl text-white mb-6">
-                Included Samples ({pack.samples.length})
+                Included Samples ({pack.samples?.length || 0})
               </h2>
               
               <div className="space-y-3">
-                {pack.samples.map((sample, index) => (
+                {pack.samples && pack.samples.length > 0 ? pack.samples.map((sample, index) => (
                   <div key={sample.id} className="bg-gray-900 border border-gray-800 rounded-lg p-4">
                     <div className="flex items-center justify-between">
                       <div className="flex-1">
@@ -387,14 +481,14 @@ export default function PackDetailPage() {
                         </div>
 
                         {/* Sample Tags */}
-                        {(sample.styleTags.length > 0 || sample.moodTags.length > 0) && (
+                        {((sample.styleTags && sample.styleTags.length > 0) || (sample.moodTags && sample.moodTags.length > 0)) && (
                           <div className="flex flex-wrap gap-1 mt-2 ml-9">
-                            {sample.styleTags.slice(0, 3).map(tag => (
+                            {sample.styleTags && sample.styleTags.slice(0, 3).map(tag => (
                               <span key={tag} className="px-2 py-1 bg-gray-800 text-gray-300 text-xs rounded">
                                 {tag}
                               </span>
                             ))}
-                            {sample.moodTags.slice(0, 2).map(tag => (
+                            {sample.moodTags && sample.moodTags.slice(0, 2).map(tag => (
                               <span key={tag} className="px-2 py-1 bg-gray-800 text-gray-300 text-xs rounded">
                                 {tag}
                               </span>
@@ -404,7 +498,11 @@ export default function PackDetailPage() {
                       </div>
                     </div>
                   </div>
-                ))}
+                )) : (
+                  <div className="text-center py-8">
+                    <p className="font-instrument-sans text-gray-400">No samples available in this pack.</p>
+                  </div>
+                )}
               </div>
             </div>
           </div>

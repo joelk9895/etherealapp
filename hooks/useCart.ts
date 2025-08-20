@@ -68,25 +68,22 @@ export function useCart() {
         const headers: any = { "Content-Type": "application/json" };
         if (isAuthenticated()) {
           const token = localStorage.getItem("token");
-          console.log(
-            "Using auth token:",
-            token ? "token present" : "no token"
-          );
           if (token) {
             headers.Authorization = `Bearer ${token}`;
           }
         }
 
-        console.log("Cart endpoint:", getCartEndpoint());
-        console.log("Request headers:", headers);
+        // First, clear the cart to ensure only one pack at a time
+        if (cartItems.length > 0) {
+          // We'll replace any existing items in the cart
+          setCartItems([]); // Optimistic update
+        }
 
         const response = await fetch(getCartEndpoint(), {
           method: "POST",
           headers,
           body: JSON.stringify({ packId, quantity }),
         });
-
-        console.log("Response status:", response.status);
 
         if (!response.ok) {
           const errorData = await response.text();
@@ -95,36 +92,20 @@ export function useCart() {
         }
 
         const data = await response.json();
-        console.log("Cart API response:", data);
 
         // Optimistic update - add item immediately to state if we have pack data
         if (packData) {
-          setCartItems((prevItems) => {
-            // Check if item already exists
-            const existingItem = prevItems.find(
-              (item) => item.packId === packId
-            );
-            if (existingItem) {
-              // Update quantity if exists
-              return prevItems.map((item) =>
-                item.packId === packId
-                  ? { ...item, quantity: item.quantity + quantity }
-                  : item
-              );
-            } else {
-              // Add new item - create a cart item structure
-              const newCartItem = {
-                id: `temp-${Date.now()}`, // Temporary ID, will be updated on next fetch
-                packId: packId,
-                title: packData.title,
-                producer: packData.producer,
-                price: packData.price,
-                quantity: quantity,
-                preview_url: packData.preview_url,
-              };
-              return [...prevItems, newCartItem];
-            }
-          });
+          // Create a new cart with just this item
+          const newCartItem = {
+            id: `temp-${Date.now()}`, // Temporary ID, will be updated on next fetch
+            packId: packId,
+            title: packData.title,
+            producer: packData.producer,
+            price: packData.price,
+            quantity: quantity,
+            preview_url: packData.preview_url,
+          };
+          setCartItems([newCartItem]);
         } else {
           // If no pack data, fall back to fetching cart
           await fetchCart();
@@ -136,7 +117,7 @@ export function useCart() {
         throw error;
       }
     },
-    [fetchCart]
+    [fetchCart, cartItems.length]
   );
 
   const updateQuantity = useCallback(
